@@ -247,7 +247,7 @@ TAG=latest docker compose -f deploy/docker-compose.release.yml up -d
 - `docker-compose.release.yml` 与主 compose 配置一致，仅去掉 build，直接拉取镜像；
 - 预构建镜像同样包含前端，不需要在宿主机安装 Go/Node；
 - 公共 registry 无需登录拉取；
-- 更新：`TAG=1.0.3 docker compose -f deploy/docker-compose.release.yml up -d`。
+- 更新：`TAG=v1.0.3 docker compose -f deploy/docker-compose.release.yml up -d`（或继续用 `latest`）。
 
 > 挂载 Docker Socket 等于把宿主机 Docker 控制权交给该容器，请务必限制后台账号权限并只暴露给可信网络。
 

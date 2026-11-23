@@ -80,7 +80,7 @@ TAG=latest docker compose -f deploy/docker-compose.release.yml up -d
 并附带 Linux/Windows 两个平台的单文件包与 `checksums.txt`：
 
 ```bash
-git tag v1.0.2
+git tag v1.0.3
 git push origin master --tags
 ```
 
