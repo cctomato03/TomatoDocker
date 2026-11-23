@@ -24,6 +24,27 @@ type Config struct {
 	Swagger     Swagger     `mapstructure:"swagger"`
 	Scheduler   Scheduler   `mapstructure:"scheduler"`
 	Integration Integration `mapstructure:"integration"`
+	Docker      Docker      `mapstructure:"docker"`
+}
+
+// Docker Docker 管理模块配置。
+//
+// 注意：环境（连接信息）与 Stack 定义全部存放在独立的 SQLite 文件中，
+// 不依赖 MySQL/Redis，方便把单个 .db 文件备份后在新机器上恢复部署。
+type Docker struct {
+	// Enabled 是否启用 Docker 管理模块（关闭后 API 返回不可用）
+	Enabled bool `mapstructure:"enabled"`
+	// Database SQLite 文件路径（相对路径按进程工作目录解析；目录不存在时自动创建）
+	Database string `mapstructure:"database"`
+	// DefaultLocalName 首次启动时自动登记的本地 Docker 环境名称
+	DefaultLocalName string `mapstructure:"default_local_name"`
+	// Socket 本地 Docker 地址；留空时自动探测：
+	// Windows → npipe:////./pipe/docker_engine，其它 → unix:///var/run/docker.sock
+	Socket string `mapstructure:"socket"`
+	// TimeoutSec 调用 Docker Engine 的单次请求超时（秒）
+	TimeoutSec int `mapstructure:"timeout_sec"`
+	// MaxLogLines 单次日志查询最大行数
+	MaxLogLines int `mapstructure:"max_log_lines"`
 }
 
 // Integration 业务系统对接（开放接口）。
@@ -295,4 +316,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("scheduler.pool_size", 10)
 	// Shell 脚本型定时任务默认关闭（等于允许后台执行任意命令）
 	v.SetDefault("scheduler.shell_enabled", false)
+
+	v.SetDefault("docker.enabled", true)
+	v.SetDefault("docker.database", "./data/tomato-docker.db")
+	v.SetDefault("docker.default_local_name", "本地 Docker")
+	v.SetDefault("docker.timeout_sec", 60)
+	v.SetDefault("docker.max_log_lines", 2000)
 }

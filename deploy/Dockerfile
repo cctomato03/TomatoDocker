@@ -58,7 +58,7 @@ COPY --from=backend /out/web-basic /app/web-basic
 # 启动时自动执行，镜像里不需要额外的 SQL 文件。
 COPY configs /app/configs
 # storage 为本地存储模式的落盘目录（对应 configs/config.yaml 的 storage.local.base_dir），logs 为日志目录
-RUN mkdir -p /app/logs /app/storage && chown -R app:app /app
+RUN mkdir -p /app/logs /app/storage /app/data && chown -R app:app /app
 USER app
 ENV TZ=Asia/Shanghai \
     APP__APP__ENV=prod \

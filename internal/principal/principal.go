@@ -20,6 +20,7 @@ type Info struct {
 	IsSuper       bool            `json:"isSuper"`
 	DataScope     int             `json:"dataScope"`
 	Roles         []string        `json:"roles"`
+	RoleIDs       []uint64        `json:"roleIds,omitempty"`
 	Perms         []string        `json:"perms"`
 	PermSet       map[string]bool `json:"-"`
 	DeptIDs       []uint64        `json:"-"` // 本部门及以下

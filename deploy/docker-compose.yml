@@ -44,9 +44,17 @@ services:
       APP__JWT__SECRET: "change-me-please-use-32chars-random-secret"
       APP__JWT__SECRET_PREVIOUS: ""
       APP__APP__ADMIN_PASSWORD: Admin@123456
+      # Docker 管理模块：Stack/环境/授权使用独立 SQLite，挂载卷持久化
+      APP__DOCKER__DATABASE: /app/data/tomato-docker.db
     volumes:
       - app-logs:/app/logs
       - app-storage:/app/storage
+      - app-data:/app/data
+      # 让容器内应用管理宿主机 Docker（等价于把 Docker 控制权交给该容器，请限制后台账号权限）
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Dockerfile 内使用非 root 用户 app；访问 docker.sock 需要 root 或匹配的 docker 组。
+    # 这里用 root 保证开箱可用；更严格的环境可改为 group_add: ["${DOCKER_GID}"]。
+    user: root
     depends_on:
       mysql:
         condition: service_healthy
@@ -108,6 +116,7 @@ volumes:
   redis-data:
   app-logs:
   app-storage:
+  app-data:
 
 networks:
   web-basic:

@@ -96,3 +96,15 @@ integration:
   api_key: ""
   # 开放接口写入的租户
   tenant_id: 1
+
+# Docker 管理（本地 Docker / Docker Swarm）
+# 环境连接信息、Stack 文件、Stack 版本、资源授权全部存放在独立 SQLite 中；
+# 备份该 .db 文件即可在新机器恢复全部 Stack 定义。
+docker:
+  enabled: true
+  database: ./data/tomato-docker.db
+  default_local_name: 本地 Docker
+  # 留空自动探测：Windows 为 npipe，Linux/macOS 为 /var/run/docker.sock
+  socket: ""
+  timeout_sec: 60
+  max_log_lines: 2000

@@ -5,15 +5,16 @@
 .idea
 .vscode
 
-# 本地构建产物
-bin
-dist
+# 本地构建产物（锚定根目录，避免误伤 pkg/storage 等源码目录）
+/bin
+/dist
 *.exe
 
 # 运行期产物
-logs
-storage
-uploads
+/logs
+/storage
+/uploads
+/data
 *.log
 *.pid
 

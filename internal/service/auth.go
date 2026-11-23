@@ -377,6 +377,7 @@ func (s *Service) loadPrincipal(ctx context.Context, user *entity.User) (*princi
 		IsSuper:   user.IsSuper,
 		DataScope: dataScope,
 		Roles:     roleCodes,
+		RoleIDs:   roleIDs,
 		Perms:     perms,
 	}
 

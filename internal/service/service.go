@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"web-basic/internal/config"
+	"web-basic/internal/docker"
+	"web-basic/internal/dockerstore"
 	"web-basic/internal/repository"
 	"web-basic/pkg/cache"
 	"web-basic/pkg/captcha"
@@ -35,27 +37,35 @@ type Service struct {
 	JWT     *jwt.Manager
 	Captcha *captcha.Service
 	Storage storage.Storage
+
+	// Docker 管理模块（独立 SQLite + Docker Engine/Swarm SDK）。
+	Docker      *docker.Manager
+	DockerStore *dockerstore.Store
 }
 
 func New(deps *Deps) *Service {
 	return &Service{
-		Repo:    deps.Repo,
-		Cache:   deps.Cache,
-		Cfg:     deps.Cfg,
-		JWT:     deps.JWT,
-		Captcha: deps.Captcha,
-		Storage: deps.Storage,
+		Repo:        deps.Repo,
+		Cache:       deps.Cache,
+		Cfg:         deps.Cfg,
+		JWT:         deps.JWT,
+		Captcha:     deps.Captcha,
+		Storage:     deps.Storage,
+		Docker:      deps.Docker,
+		DockerStore: deps.DockerStore,
 	}
 }
 
 // Deps 依赖集合（由 bootstrap 装配）。
 type Deps struct {
-	Repo    *repository.Repo
-	Cache   *cache.Cache
-	Cfg     *config.Config
-	JWT     *jwt.Manager
-	Captcha *captcha.Service
-	Storage storage.Storage
+	Repo        *repository.Repo
+	Cache       *cache.Cache
+	Cfg         *config.Config
+	JWT         *jwt.Manager
+	Captcha     *captcha.Service
+	Storage     storage.Storage
+	Docker      *docker.Manager
+	DockerStore *dockerstore.Store
 }
 
 // principalVersion 当前全局权限版本；未初始化时生成一个（永久 key）。

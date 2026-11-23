@@ -1,0 +1,119 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [master, main]
+    tags: ["v*"]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build, test and package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # release notes / changelog 需要完整历史
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: web
+        run: pnpm build
+
+      - name: Embed frontend into Go binary
+        run: |
+          set -euo pipefail
+          rm -rf internal/webui/dist
+          mkdir -p internal/webui/dist
+          cp -r web/dist/. internal/webui/dist/
+
+      - name: Go test
+        run: go test ./...
+
+      - name: Build binaries
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "${GITHUB_REF_TYPE}" != "tag" ]]; then
+            VERSION="dev-${GITHUB_SHA::7}"
+          fi
+          BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          LDFLAGS="-s -w -X main.Version=${VERSION} -X main.Commit=${GITHUB_SHA} -X main.BuildTime=${BUILD_TIME}"
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags embed -trimpath \
+            -ldflags "${LDFLAGS}" -o dist/tomato-docker-linux-amd64 ./cmd/server
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags embed -trimpath \
+            -ldflags "${LDFLAGS}" -o dist/tomato-docker-windows-amd64.exe ./cmd/server
+          chmod +x dist/tomato-docker-linux-amd64
+
+      - name: Package release files
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "${GITHUB_REF_TYPE}" != "tag" ]]; then
+            VERSION="dev-${GITHUB_SHA::7}"
+          fi
+          mkdir -p release/linux release/windows
+          cp dist/tomato-docker-linux-amd64 release/linux/tomato-docker-server
+          cp dist/tomato-docker-windows-amd64.exe release/windows/tomato-docker-server.exe
+          for dir in release/linux release/windows; do
+            cp -r configs "$dir/"
+            cp -r docs "$dir/"
+            cp README.md "$dir/"
+            mkdir -p "$dir/data"
+          done
+          tar -czf "dist/tomato-docker-${VERSION}-linux-amd64.tar.gz" -C release/linux .
+          (cd release/windows && zip -qr "../../dist/tomato-docker-${VERSION}-windows-amd64.zip" .)
+          cd dist
+          sha256sum *.tar.gz *.zip > checksums.txt
+          ls -lh
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tomato-docker-${{ github.run_number }}
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt

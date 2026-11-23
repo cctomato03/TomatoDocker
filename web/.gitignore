@@ -5,7 +5,5 @@ dist-ssr
 *.local
 .cursorrules
 
-# Auto-generated files
-src/types/import/auto-imports.d.ts
-src/types/import/components.d.ts
+# Auto-generated files（d.ts 入库，保证全新克隆可直接 pnpm build；.auto-import.json 仍然忽略）
 .auto-import.json

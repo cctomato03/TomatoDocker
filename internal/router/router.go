@@ -232,6 +232,107 @@ func New(cfg *config.Config, svc *service.Service, h *api.Handler) *gin.Engine {
 		// 首页概览
 		authed.GET("/dashboard/summary", h.DashboardSummary)
 
+		// ---------- Docker 管理（本地 / Swarm） ----------
+		// 说明：静态权限码控制"能不能用这个功能"，service 层再按环境资源授权
+		// （只读/操作/管理）做第二道校验，两者缺一不可。
+		dk := authed.Group("/docker")
+
+		env := dk.Group("/environments")
+		env.GET("", middleware.Perm("docker:environment:list"), h.DockerEnvironments)
+		env.GET("/:id", middleware.Perm("docker:environment:list"), h.DockerEnvironment)
+		env.POST("", middleware.Perm("docker:environment:create"), h.DockerCreateEnvironment)
+		env.PUT("/:id", middleware.Perm("docker:environment:update"), h.DockerUpdateEnvironment)
+		env.DELETE("/:id", middleware.Perm("docker:environment:delete"), h.DockerDeleteEnvironment)
+		env.POST("/:id/test", middleware.Perm("docker:environment:test"), h.DockerTestEnvironment)
+		env.GET("/:id/overview", middleware.Perm("docker:environment:list"), h.DockerOverview)
+		env.GET("/:id/grants", middleware.Perm("docker:environment:grant"), h.DockerGrants)
+		env.PUT("/:id/grants", middleware.Perm("docker:environment:grant"), h.DockerSetGrants)
+		dk.GET("/grants/options", middleware.Perm("docker:environment:grant"), h.DockerGrantOptions)
+
+		// 容器
+		ct := env.Group("/:id/containers")
+		ct.GET("", middleware.Perm("docker:container:list"), h.DockerContainers)
+		ct.POST("", middleware.Perm("docker:container:create"), h.DockerCreateContainer)
+		ct.POST("/prune", middleware.Perm("docker:container:delete"), h.DockerContainersPrune)
+		ct.GET("/:cid", middleware.Perm("docker:container:list"), h.DockerContainerInspect)
+		ct.POST("/:cid/actions", middleware.Perm("docker:container:operate"), h.DockerContainerAction)
+		ct.DELETE("/:cid", middleware.Perm("docker:container:delete"), h.DockerContainerRemove)
+		ct.GET("/:cid/logs", middleware.Perm("docker:container:list"), h.DockerContainerLogs)
+		ct.GET("/:cid/stats", middleware.Perm("docker:container:list"), h.DockerContainerStats)
+		ct.POST("/:cid/exec", middleware.Perm("docker:container:exec"), h.DockerContainerExec)
+
+		// 镜像
+		img := env.Group("/:id/images")
+		img.GET("", middleware.Perm("docker:image:list"), h.DockerImages)
+		img.GET("/pull", middleware.Perm("docker:image:pull"), h.DockerPullImage)
+		img.POST("/prune", middleware.Perm("docker:image:delete"), h.DockerImagesPrune)
+		img.GET("/:imageId", middleware.Perm("docker:image:list"), h.DockerImageInspect)
+		img.DELETE("/:imageId", middleware.Perm("docker:image:delete"), h.DockerImageRemove)
+
+		// 网络
+		netw := env.Group("/:id/networks")
+		netw.GET("", middleware.Perm("docker:network:list"), h.DockerNetworks)
+		netw.POST("", middleware.Perm("docker:network:create"), h.DockerCreateNetwork)
+		netw.POST("/prune", middleware.Perm("docker:network:delete"), h.DockerNetworksPrune)
+		netw.GET("/:networkId", middleware.Perm("docker:network:list"), h.DockerNetworkInspect)
+		netw.DELETE("/:networkId", middleware.Perm("docker:network:delete"), h.DockerRemoveNetwork)
+		netw.POST("/:networkId/connect", middleware.Perm("docker:network:update"), h.DockerConnectNetwork)
+		netw.POST("/:networkId/disconnect", middleware.Perm("docker:network:update"), h.DockerDisconnectNetwork)
+
+		// 数据卷
+		vol := env.Group("/:id/volumes")
+		vol.GET("", middleware.Perm("docker:volume:list"), h.DockerVolumes)
+		vol.POST("", middleware.Perm("docker:volume:create"), h.DockerCreateVolume)
+		vol.POST("/prune", middleware.Perm("docker:volume:delete"), h.DockerVolumesPrune)
+		vol.GET("/:name", middleware.Perm("docker:volume:list"), h.DockerVolumeInspect)
+		vol.DELETE("/:name", middleware.Perm("docker:volume:delete"), h.DockerRemoveVolume)
+
+		// Swarm 集群 / 节点 / 服务 / 任务 / 密钥 / 配置
+		sw := env.Group("/:id/swarm")
+		sw.GET("", middleware.Perm("docker:swarm:view"), h.DockerSwarmState)
+		sw.POST("/init", middleware.Perm("docker:swarm:init"), h.DockerSwarmInit)
+		sw.POST("/leave", middleware.Perm("docker:swarm:leave"), h.DockerSwarmLeave)
+
+		node := env.Group("/:id/nodes")
+		node.GET("", middleware.Perm("docker:node:list"), h.DockerNodes)
+		node.PUT("/:nodeId", middleware.Perm("docker:node:update"), h.DockerUpdateNode)
+		node.DELETE("/:nodeId", middleware.Perm("docker:node:delete"), h.DockerRemoveNode)
+
+		svc := env.Group("/:id/services")
+		svc.GET("", middleware.Perm("docker:service:list"), h.DockerServices)
+		svc.POST("", middleware.Perm("docker:service:create"), h.DockerCreateService)
+		svc.GET("/:serviceId", middleware.Perm("docker:service:list"), h.DockerServiceDetail)
+		svc.PUT("/:serviceId", middleware.Perm("docker:service:update"), h.DockerUpdateService)
+		svc.DELETE("/:serviceId", middleware.Perm("docker:service:delete"), h.DockerRemoveService)
+		svc.GET("/:serviceId/logs", middleware.Perm("docker:service:list"), h.DockerServiceLogs)
+		svc.POST("/:serviceId/scale", middleware.Perm("docker:service:scale"), h.DockerScaleService)
+
+		env.GET("/:id/tasks", middleware.Perm("docker:task:list"), h.DockerTasks)
+
+		sec := env.Group("/:id/secrets")
+		sec.GET("", middleware.Perm("docker:secret:list"), h.DockerSecrets)
+		sec.POST("", middleware.Perm("docker:secret:create"), h.DockerCreateSecret)
+		sec.DELETE("/:secretId", middleware.Perm("docker:secret:delete"), h.DockerRemoveSecret)
+
+		cfg := env.Group("/:id/configs")
+		cfg.GET("", middleware.Perm("docker:config:list"), h.DockerConfigs)
+		cfg.POST("", middleware.Perm("docker:config:create"), h.DockerCreateConfig)
+		cfg.DELETE("/:configId", middleware.Perm("docker:config:delete"), h.DockerRemoveConfig)
+
+		// Stack（compose 内容存储在独立 SQLite）
+		st := dk.Group("/stacks")
+		st.GET("", middleware.Perm("docker:stack:list"), h.DockerStacks)
+		st.POST("", middleware.Perm("docker:stack:create"), h.DockerCreateStack)
+		st.GET("/export", middleware.Perm("docker:stack:export"), h.DockerExportStacks)
+		st.POST("/import", middleware.Perm("docker:stack:import"), h.DockerImportStacks)
+		st.GET("/backup", middleware.Perm("docker:stack:export"), h.DockerBackupDatabase)
+		st.GET("/:id", middleware.Perm("docker:stack:list"), h.DockerStack)
+		st.PUT("/:id", middleware.Perm("docker:stack:update"), h.DockerUpdateStack)
+		st.DELETE("/:id", middleware.Perm("docker:stack:delete"), h.DockerDeleteStack)
+		st.POST("/:id/deploy", middleware.Perm("docker:stack:deploy"), h.DockerDeployStack)
+		st.POST("/:id/stop", middleware.Perm("docker:stack:stop"), h.DockerStopStack)
+		st.POST("/:id/rollback", middleware.Perm("docker:stack:deploy"), h.DockerRollbackStack)
+
 		// 定时任务
 		j := authed.Group("/system/jobs")
 		j.GET("", middleware.Perm("system:job:list"), h.ListJobs)
