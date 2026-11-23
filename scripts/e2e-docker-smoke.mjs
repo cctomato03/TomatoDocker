@@ -78,6 +78,8 @@ class CDP {
     this.pending = new Map()
     this.consoleErrors = []
     this.httpErrors = []
+    this.networkFailures = []
+    this.requests = new Map()
     ws.addEventListener('message', (ev) => this.onMessage(JSON.parse(ev.data)))
   }
   onMessage(msg) {
@@ -94,9 +96,20 @@ class CDP {
       const d = msg.params.exceptionDetails
       this.consoleErrors.push(`${d.text} ${d.exception?.description || ''}`)
     }
+    if (msg.method === 'Network.requestWillBeSent') {
+      this.requests.set(msg.params.requestId, msg.params.request.url)
+    }
     if (msg.method === 'Network.responseReceived') {
       const r = msg.params.response
       if (r.status >= 400 && !r.url.includes('favicon')) this.httpErrors.push(`${r.status} ${r.url}`)
+    }
+    if (msg.method === 'Network.loadingFailed') {
+      const url = this.requests.get(msg.params.requestId) || ''
+      const error = msg.params.errorText || 'loadingFailed'
+      // 页面切换/主动 abort 不算错误
+      if (!error.includes('ERR_ABORTED') && !url.includes('favicon')) {
+        this.networkFailures.push(`${error} ${url}`)
+      }
     }
     if (msg.method === 'Log.entryAdded' && msg.params.entry.level === 'error') {
       this.consoleErrors.push(msg.params.entry.text)
@@ -262,10 +275,9 @@ try {
   ]
 
   for (const [name, path, expect] of pages) {
-    const beforeConsole = cdp.consoleErrors.length
-    const beforeHttp = cdp.httpErrors.length
     cdp.consoleErrors.length = 0
     cdp.httpErrors.length = 0
+    cdp.networkFailures.length = 0
     await cdp.send('Page.navigate', { url: `${baseUrl}/#${path}` })
     await sleep(2200)
     const text = await cdp.eval('document.body?.innerText || ""')
@@ -283,8 +295,12 @@ try {
     if (cdp.httpErrors.length) {
       check(`HTTP 错误 ${path}`, false, cdp.httpErrors.slice(0, 2).join(' | '))
     }
+    if (cdp.networkFailures.length) {
+      check(`网络请求失败 ${path}`, false, cdp.networkFailures.slice(0, 2).join(' | '))
+    }
     cdp.consoleErrors.length = 0
     cdp.httpErrors.length = 0
+    cdp.networkFailures.length = 0
   }
 } catch (err) {
   check('测试执行', false, err instanceof Error ? err.message : String(err))

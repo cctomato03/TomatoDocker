@@ -19,14 +19,19 @@ ARG NODE_IMAGE=node:22-alpine
 ARG GO_VERSION=1.26
 ARG GO_IMAGE=golang:${GO_VERSION}-alpine
 ARG RUNTIME_IMAGE=alpine:3.20
+ARG PNPM_VERSION=10.20.0
 
 # ---------- 1. 前端构建 ----------
 FROM ${NODE_IMAGE} AS web
-ARG NPM_REGISTRY=https://registry.npmjs.org
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+ARG PNPM_VERSION
 WORKDIR /src/web
+# 固定 pnpm 版本，避免 corepack 在构建时临时拉取最新大版本导致锁文件行为漂移。
 # 依赖清单先拷贝，利用 layer 缓存（pnpm-workspace.yaml 里声明了允许执行安装脚本的依赖）
-COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
-RUN corepack enable && pnpm config set registry ${NPM_REGISTRY} && pnpm install --frozen-lockfile
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml web/.npmrc ./
+RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate \
+    && pnpm config set registry ${NPM_REGISTRY} \
+    && pnpm install --frozen-lockfile
 COPY web/ ./
 RUN pnpm build
 

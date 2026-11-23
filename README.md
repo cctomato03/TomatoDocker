@@ -45,8 +45,32 @@ cd web && pnpm install && pnpm dev
 ```bash
 cd web && pnpm build && cd ..
 powershell -ExecutionPolicy Bypass -File scripts/build.ps1   # 或 make build
-docker compose -f deploy/docker-compose.yml up -d --build     # 前后端一体镜像 + MySQL + Redis
 ```
+
+### Docker 部署（推荐，类似 Portainer）
+
+应用镜像已包含前端，挂载宿主机 Docker Socket 后即可管理本机容器/Swarm/Stack：
+
+```bash
+cp deploy/.env.example deploy/.env      # 修改 JWT_SECRET、管理员密码、端口
+docker compose -f deploy/docker-compose.yml up -d --build
+```
+
+打开 `http://localhost:8080`。数据持久化：
+
+- MySQL / Redis：`mysql-data`、`redis-data`
+- 日志 / 文件 / Docker SQLite：`app-logs`、`app-storage`、`app-data`
+
+也可以直接使用 GitHub Actions 构建的预构建镜像（不构建源码）：
+
+```bash
+docker login ghcr.io          # 如果 GHCR 包为私有
+TAG=latest docker compose -f deploy/docker-compose.release.yml up -d
+```
+
+镜像地址：`ghcr.io/cctomato03/tomato-docker:latest`。
+
+> 挂载 `/var/run/docker.sock` 等价于把宿主机 Docker 控制权交给该容器，请限制后台账号权限并只暴露给可信网络。
 
 ## 发布（GitHub Actions）
 

@@ -1,0 +1,117 @@
+# TomatoDocker · 使用预构建镜像部署（不构建源码，最接近 Portainer 的安装方式）
+#
+# 使用：
+#   cp deploy/.env.example deploy/.env
+#   # 如 GHCR 包为私有：docker login ghcr.io
+#   TAG=1.0.1 docker compose -f deploy/docker-compose.release.yml up -d
+#
+# 镜像由 GitHub Actions 在推送 v* 标签时自动发布到：
+#   ghcr.io/cctomato03/tomato-docker:<版本> 和 :latest
+#
+# 本文件与 deploy/docker-compose.yml 的服务配置保持一致，仅去掉 build，改为拉取镜像。
+name: tomato-docker
+
+services:
+  app:
+    image: ghcr.io/cctomato03/tomato-docker:${TAG:-latest}
+    container_name: tomato-docker-app
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    environment:
+      TZ: Asia/Shanghai
+      APP__APP__ENV: prod
+      APP__APP__MODE: release
+      APP__APP__PORT: "8080"
+      APP__MYSQL__DSN: "root:${MYSQL_ROOT_PASSWORD:-root123}@tcp(mysql:3306)/web_basic?charset=utf8mb4&parseTime=True&loc=Local&timeout=10s&clientFoundRows=true"
+      APP__REDIS__ADDR: "redis:6379"
+      APP__REDIS__PASSWORD: "${REDIS_PASSWORD:-}"
+      APP__STORAGE__TYPE: local
+      APP__SCHEDULER__SHELL_ENABLED: "${SCHEDULER_SHELL_ENABLED:-false}"
+      APP__INTEGRATION__ENABLED: "${INTEGRATION_ENABLED:-false}"
+      APP__INTEGRATION__API_KEY: "${INTEGRATION_API_KEY:-}"
+      APP__INTEGRATION__TENANT_ID: "1"
+      APP__JWT__SECRET: "${JWT_SECRET:-change-me-please-use-32chars-random-secret}"
+      APP__JWT__SECRET_PREVIOUS: ""
+      APP__APP__ADMIN_PASSWORD: "${ADMIN_PASSWORD:-Admin@123456}"
+      APP__DOCKER__ENABLED: "true"
+      APP__DOCKER__DATABASE: /app/data/tomato-docker.db
+    volumes:
+      - app-logs:/app/logs
+      - app-storage:/app/storage
+      - app-data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    user: root
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+    networks:
+      - web-basic
+
+  mysql:
+    image: mysql:8.0
+    container_name: tomato-docker-mysql
+    restart: unless-stopped
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_general_ci
+      --default-authentication-plugin=mysql_native_password
+      --lower_case_table_names=0
+    environment:
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:-root123}"
+      MYSQL_DATABASE: web_basic
+      TZ: Asia/Shanghai
+    ports:
+      - "${MYSQL_PORT:-3307}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$${MYSQL_ROOT_PASSWORD}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - web-basic
+
+  redis:
+    image: redis:7-alpine
+    container_name: tomato-docker-redis
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
+    command:
+      - sh
+      - -c
+      - exec redis-server --appendonly yes $${REDIS_PASSWORD:+--requirepass "$${REDIS_PASSWORD}"}
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - if [ -n "$${REDIS_PASSWORD}" ]; then redis-cli -a "$${REDIS_PASSWORD}" ping; else redis-cli ping; fi
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - web-basic
+
+volumes:
+  mysql-data:
+  redis-data:
+  app-logs:
+  app-storage:
+  app-data:
+
+networks:
+  web-basic:
+    driver: bridge

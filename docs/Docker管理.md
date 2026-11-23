@@ -210,15 +210,43 @@ powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 
 数据目录：`./data/tomato-docker.db`（首次启动自动创建并登记本地 Docker）。
 
-### 8.2 Docker Compose
+### 8.2 Docker Compose（源码构建）
 
-`deploy/docker-compose.yml` 已增加：
+```bash
+cp deploy/.env.example deploy/.env
+# 修改 JWT_SECRET / ADMIN_PASSWORD / 端口
+docker compose -f deploy/docker-compose.yml up -d --build
+```
+
+`deploy/docker-compose.yml` 已包含：
 
 - `/var/run/docker.sock:/var/run/docker.sock`：让容器内应用管理宿主机 Docker；
-- `app-data:/app/data`：持久化 SQLite；
-- `APP__DOCKER__DATABASE=/app/data/tomato-docker.db`。
+- `app-data:/app/data`：持久化 Docker SQLite；
+- `APP__DOCKER__DATABASE=/app/data/tomato-docker.db`；
+- MySQL 8.0 + Redis 7（应用依赖 MySQL/Redis，Docker 域数据仍在 SQLite）。
 
-> 挂载 Docker Socket 等于把宿主机 Docker 控制权交给该容器，请务必限制后台账号权限并只暴露给可信网络。
+### 8.3 预构建镜像（类似 Portainer 安装方式）
+
+GitHub Actions 在 `v*` 标签构建并推送：
+
+```
+ghcr.io/cctomato03/tomato-docker:<版本>
+ghcr.io/cctomato03/tomato-docker:latest
+```
+
+使用：
+
+```bash
+cp deploy/.env.example deploy/.env
+# 如 GHCR 包为私有：docker login ghcr.io
+TAG=latest docker compose -f deploy/docker-compose.release.yml up -d
+```
+
+- `docker-compose.release.yml` 与主 compose 配置一致，仅去掉 build，直接拉取镜像；
+- 预构建镜像同样包含前端，不需要在宿主机安装 Go/Node；
+- 更新：`TAG=1.0.2 docker compose -f deploy/docker-compose.release.yml up -d`。
+
+> 挂载 Docker Socket 等于把宿主机 Docker 控制权交给该容器，请务必限制后台账号权限并只暴露给可信网络。MySQL/Redis 使用容器内部网络访问，不建议暴露到公网。
 
 ---
 
@@ -244,6 +272,19 @@ node scripts/e2e-docker-smoke.mjs http://127.0.0.1:8090 admin <密码>
 - Compose Stack 创建、部署、更新、重新部署、删除；
 - Swarm 初始化、节点、密钥、服务创建/扩缩容/删除、Swarm Stack 部署/停止/删除、退出 Swarm；
 - 只读用户：可见环境与容器，容器操作/删除环境/创建网络均返回 403（功能权限或环境级别）。
+
+Docker 部署实测（2026-11-23）：
+
+- `docker compose -f deploy/docker-compose.yml build app` 成功；
+- 以 8088 / 3308 / 6388 端口启动 app + MySQL + Redis，`/readyz` 返回 `{"mysql":true,"redis":true}`；
+- 容器内应用通过 `/var/run/docker.sock` 看到宿主机 16 个容器（包括自身）；
+- 从容器内部署 Compose Stack，宿主机出现 `docker-deploy-e2e-web-1`，随后通过 API 删除；
+- `deploy/docker-compose.release.yml` 使用本地预构建镜像启动同样通过；
+- 容器化实例页面冒烟 17/17 通过；
+- Redis 设置密码 `TestRedis123` 后 `/readyz` 仍正常，随后恢复为空密码。
+
+> 容器化实例的 Redis 容器名是 `tomato-docker-redis`；运行冒烟脚本时设置
+> `E2E_REDIS_CONTAINER=tomato-docker-redis`。
 
 ---
 

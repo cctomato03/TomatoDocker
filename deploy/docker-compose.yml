@@ -1,12 +1,18 @@
-# 前后端一体部署（单可执行文件镜像）+ MySQL 8.0 + Redis
-# 使用：docker compose -f deploy/docker-compose.yml up -d --build
+# TomatoDocker · 一键 Docker 部署（应用 + MySQL 8.0 + Redis）
+#
+# 使用：
+#   cp deploy/.env.example deploy/.env   # 首次部署，修改 JWT_SECRET / 密码
+#   docker compose -f deploy/docker-compose.yml up -d --build
+#
+# 或使用预构建镜像（不构建源码）：
+#   docker compose -f deploy/docker-compose.release.yml up -d
 #
 # 环境变量命名规则：viper 前缀 APP + 配置路径用 __ 分隔，例如 mysql.dsn → APP__MYSQL__DSN。
 # 镜像内 configs/config.yaml 是"本机开发"默认值（127.0.0.1:3307），容器里必须用下面的环境变量覆盖。
 #
-# 宿主机端口都可通过环境变量改（避免和本机已装的 MySQL/Redis 冲突）：
-#   APP_PORT=8080 MYSQL_PORT=3307 REDIS_PORT=6380 docker compose -f deploy/docker-compose.yml up -d
-name: web-basic
+# 宿主机端口都可通过 deploy/.env 修改（避免和本机已装的 MySQL/Redis 冲突）：
+#   APP_PORT=8080 MYSQL_PORT=3307 REDIS_PORT=6380
+name: tomato-docker
 
 services:
   app:
@@ -15,8 +21,8 @@ services:
       dockerfile: deploy/Dockerfile
       args:
         GOPROXY: https://goproxy.cn,direct
-    image: web-basic:latest
-    container_name: web-basic-app
+    image: ${APP_IMAGE:-tomato-docker:latest}
+    container_name: tomato-docker-app
     restart: unless-stopped
     ports:
       - "${APP_PORT:-8080}:8080"
@@ -28,10 +34,10 @@ services:
       APP__APP__PORT: "8080"
       # 数据库：容器内用服务名访问；clientFoundRows=true 不可省略
       # （让驱动返回"匹配行数"，代码才能用"影响行数=0"判定记录不存在）
-      APP__MYSQL__DSN: "root:root123@tcp(mysql:3306)/web_basic?charset=utf8mb4&parseTime=True&loc=Local&timeout=10s&clientFoundRows=true"
+      APP__MYSQL__DSN: "root:${MYSQL_ROOT_PASSWORD:-root123}@tcp(mysql:3306)/web_basic?charset=utf8mb4&parseTime=True&loc=Local&timeout=10s&clientFoundRows=true"
       # Redis
       APP__REDIS__ADDR: "redis:6379"
-      APP__REDIS__PASSWORD: ""
+      APP__REDIS__PASSWORD: "${REDIS_PASSWORD:-}"
       # 文件存储：容器内使用本地磁盘（对应 /app/storage 挂载卷）
       APP__STORAGE__TYPE: local
       # 是否允许 Shell 脚本型定时任务（默认关闭；打开等于允许后台在容器内执行任意命令）
@@ -41,10 +47,11 @@ services:
       APP__INTEGRATION__API_KEY: "${INTEGRATION_API_KEY:-}"
       APP__INTEGRATION__TENANT_ID: "1"
       # 生产务必覆盖：JWT 密钥（>=32 位随机串）与管理员初始密码
-      APP__JWT__SECRET: "change-me-please-use-32chars-random-secret"
+      APP__JWT__SECRET: "${JWT_SECRET:-change-me-please-use-32chars-random-secret}"
       APP__JWT__SECRET_PREVIOUS: ""
-      APP__APP__ADMIN_PASSWORD: Admin@123456
+      APP__APP__ADMIN_PASSWORD: "${ADMIN_PASSWORD:-Admin@123456}"
       # Docker 管理模块：Stack/环境/授权使用独立 SQLite，挂载卷持久化
+      APP__DOCKER__ENABLED: "true"
       APP__DOCKER__DATABASE: /app/data/tomato-docker.db
     volumes:
       - app-logs:/app/logs
@@ -71,7 +78,7 @@ services:
 
   mysql:
     image: mysql:8.0
-    container_name: web-basic-mysql
+    container_name: tomato-docker-mysql
     restart: unless-stopped
     command: >
       --character-set-server=utf8mb4
@@ -79,7 +86,7 @@ services:
       --default-authentication-plugin=mysql_native_password
       --lower_case_table_names=0
     environment:
-      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:-root123}"
       MYSQL_DATABASE: web_basic
       TZ: Asia/Shanghai
     ports:
@@ -87,7 +94,7 @@ services:
     volumes:
       - mysql-data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot123"]
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$${MYSQL_ROOT_PASSWORD}\""]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -96,15 +103,22 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: web-basic-redis
+    container_name: tomato-docker-redis
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    environment:
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
+    command:
+      - sh
+      - -c
+      - exec redis-server --appendonly yes $${REDIS_PASSWORD:+--requirepass "$${REDIS_PASSWORD}"}
     ports:
       - "${REDIS_PORT:-6380}:6379"
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test:
+        - CMD-SHELL
+        - if [ -n "$${REDIS_PASSWORD}" ]; then redis-cli -a "$${REDIS_PASSWORD}" ping; else redis-cli ping; fi
       interval: 10s
       timeout: 3s
       retries: 5
