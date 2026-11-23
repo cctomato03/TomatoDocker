@@ -12,8 +12,7 @@ import (
 
 type Config struct {
 	App         App         `mapstructure:"app"`
-	MySQL       MySQL       `mapstructure:"mysql"`
-	Redis       Redis       `mapstructure:"redis"`
+	SQLite      SQLite      `mapstructure:"sqlite"`
 	JWT         JWT         `mapstructure:"jwt"`
 	Auth        Auth        `mapstructure:"auth"`
 	Upload      Upload      `mapstructure:"upload"`
@@ -30,7 +29,7 @@ type Config struct {
 // Docker Docker 管理模块配置。
 //
 // 注意：环境（连接信息）与 Stack 定义全部存放在独立的 SQLite 文件中，
-// 不依赖 MySQL/Redis，方便把单个 .db 文件备份后在新机器上恢复部署。
+// 与主业务库分开，方便把单个 .db 文件备份后在新机器上恢复部署。
 type Docker struct {
 	// Enabled 是否启用 Docker 管理模块（关闭后 API 返回不可用）
 	Enabled bool `mapstructure:"enabled"`
@@ -71,22 +70,24 @@ type App struct {
 	AdminPassword string   `mapstructure:"admin_password"` // 仅用于首次初始化种子超管
 }
 
-type MySQL struct {
-	DSN             string `mapstructure:"dsn"`
-	MaxIdle         int    `mapstructure:"max_idle"`
-	MaxOpen         int    `mapstructure:"max_open"`
-	ConnMaxLifetime int    `mapstructure:"conn_max_lifetime_min"`
-	SlowThresholdMS int    `mapstructure:"slow_threshold_ms"`
-	AutoMigrate     bool   `mapstructure:"auto_migrate"`
-	LogSQL          bool   `mapstructure:"log_sql"`
-}
-
-type Redis struct {
-	Addr     string `mapstructure:"addr"`
-	Password string `mapstructure:"password"`
-	DB       int    `mapstructure:"db"`
-	Prefix   string `mapstructure:"prefix"`
-	PoolSize int    `mapstructure:"pool_size"`
+// SQLite 主业务数据库配置。
+//
+// 主业务数据（用户/权限/菜单/日志/通知等）与 Docker 域数据都使用 SQLite；
+// 默认文件分离：data/tomato.db（主库）与 data/tomato-docker.db（Docker 域），
+// 方便单独备份 Stack 数据，也避免一个库损坏影响全部功能。
+type SQLite struct {
+	// Path 数据库文件路径（相对路径按进程工作目录解析）
+	Path string `mapstructure:"path"`
+	// BusyTimeoutMS 写锁等待时间（毫秒）
+	BusyTimeoutMS int `mapstructure:"busy_timeout_ms"`
+	// WAL 是否启用 WAL 模式（推荐开启）
+	WAL bool `mapstructure:"wal"`
+	// AutoMigrate 启动时执行内嵌迁移
+	AutoMigrate bool `mapstructure:"auto_migrate"`
+	// SlowThresholdMS 慢查询阈值
+	SlowThresholdMS int `mapstructure:"slow_threshold_ms"`
+	// LogSQL 是否打印 SQL
+	LogSQL bool `mapstructure:"log_sql"`
 }
 
 type JWT struct {
@@ -173,7 +174,7 @@ type Scheduler struct {
 	ShellEnabled bool `mapstructure:"shell_enabled"`
 }
 
-// Load 读取配置文件并应用环境变量覆盖（APP__MYSQL__DSN 形式）。
+// Load 读取配置文件并应用环境变量覆盖（APP__SQLITE__PATH 形式）。
 func Load(path string) (*Config, error) {
 	v := viper.New()
 	setDefaults(v)
@@ -185,7 +186,7 @@ func Load(path string) (*Config, error) {
 	}
 
 	// 环境变量覆盖：APP__<配置路径，层级用 __ 分隔>，例如
-	//   APP__MYSQL__DSN、APP__APP__PORT、APP__STORAGE__OSS__BUCKET
+	//   APP__SQLITE__PATH、APP__APP__PORT、APP__STORAGE__OSS__BUCKET
 	// 注意：不用 viper 的 SetEnvPrefix/AutomaticEnv —— 它拼出的名字是 APP_APP__PORT，
 	// 且 Unmarshal 读不到"仅来自环境变量"的键，容器部署时覆盖会全部失效。
 	applyEnvOverrides(v)
@@ -235,8 +236,8 @@ func applyEnvOverrides(v *viper.Viper) {
 }
 
 func (c *Config) validate() error {
-	if c.MySQL.DSN == "" {
-		return fmt.Errorf("mysql.dsn 不能为空")
+	if strings.TrimSpace(c.SQLite.Path) == "" {
+		return fmt.Errorf("sqlite.path 不能为空")
 	}
 	if c.JWT.Secret == "" {
 		return fmt.Errorf("jwt.secret 不能为空（生产环境请通过环境变量 APP__JWT__SECRET 注入）")
@@ -265,15 +266,12 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("app.lang", "zh-CN")
 	v.SetDefault("app.cors_origins", []string{"http://localhost:5173", "http://127.0.0.1:5173"})
 
-	v.SetDefault("mysql.max_idle", 10)
-	v.SetDefault("mysql.max_open", 100)
-	v.SetDefault("mysql.conn_max_lifetime_min", 60)
-	v.SetDefault("mysql.slow_threshold_ms", 200)
-	v.SetDefault("mysql.auto_migrate", true)
-
-	v.SetDefault("redis.addr", "127.0.0.1:6379")
-	v.SetDefault("redis.prefix", "web:")
-	v.SetDefault("redis.pool_size", 50)
+	v.SetDefault("sqlite.path", "./data/tomato.db")
+	v.SetDefault("sqlite.busy_timeout_ms", 5000)
+	v.SetDefault("sqlite.wal", true)
+	v.SetDefault("sqlite.auto_migrate", true)
+	v.SetDefault("sqlite.slow_threshold_ms", 200)
+	v.SetDefault("sqlite.log_sql", false)
 
 	v.SetDefault("jwt.access_ttl", 2*time.Hour)
 	v.SetDefault("jwt.refresh_ttl", 168*time.Hour)

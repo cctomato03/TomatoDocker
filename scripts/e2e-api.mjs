@@ -70,14 +70,18 @@ async function api(path, { method = 'GET', token, body } = {}) {
 
 async function login(username, password) {
   const cap = await api('/api/v1/auth/captcha')
-  const captchaId = cap.json?.data?.captchaId || ''
-  const captchaCode = captchaId ? await redisGet(`${REDIS_PREFIX}captcha:${captchaId}`) : ''
-  if (!captchaCode) throw new Error('无法从 Redis 读取验证码，请确认容器与 key 前缀')
-  const res = await api('/api/v1/auth/login', {
+  let captchaId = ''
+  let captchaCode = ''
+  // 默认走 Redis 读验证码的老链路；SQLite/内存模式可用 APP__AUTH__CAPTCHA_ENABLED=false 关闭验证码。
+  if (cap.json?.data?.enabled) {
+    captchaId = cap.json?.data?.captchaId || ''
+    captchaCode = captchaId ? await redisGet(`${REDIS_PREFIX}captcha:${captchaId}`) : ''
+    if (!captchaCode) throw new Error('验证码已开启：请设置 APP__AUTH__CAPTCHA_ENABLED=false，或提供 E2E_REDIS_CONTAINER')
+  }
+  return api('/api/v1/auth/login', {
     method: 'POST',
     body: { username, password, captchaId, captchaCode }
   })
-  return res
 }
 
 const READONLY_ENDPOINTS = [
@@ -113,7 +117,7 @@ async function main() {
   }
   const ready = await api('/readyz')
   const readyBody = ready.json?.data || ready.json
-  check('依赖就绪（mysql + redis）', readyBody?.mysql === true && readyBody?.redis === true, JSON.stringify(readyBody))
+  check('依赖就绪（sqlite + cache）', readyBody?.sqlite === true && readyBody?.cache === true, JSON.stringify(readyBody))
 
   // 2. 登录
   const admin = await login(adminUser, adminPass)

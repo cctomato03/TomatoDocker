@@ -1,44 +1,64 @@
-// Package captcha 图形验证码：base64 输出 + Redis 存储，支持过期与一次性校验。
+// Package captcha 图形验证码：base64 输出 + 进程内存储（不再依赖 Redis）。
 package captcha
 
 import (
-	"context"
+	"sync"
 	"time"
 
 	"github.com/mojocn/base64Captcha"
-	"github.com/redis/go-redis/v9"
 )
 
-// RedisStore 验证码存储实现（base64Captcha.Store）。
-type RedisStore struct {
-	rdb    *redis.Client
-	prefix string
-	ttl    time.Duration
+// MemoryStore 验证码存储实现（base64Captcha.Store）。
+//
+// 验证码是短生命周期的一次性数据，单容器部署下放内存即可；
+// 进程重启后旧验证码失效是预期行为。
+type MemoryStore struct {
+	mu    sync.Mutex
+	ttl   time.Duration
+	items map[string]memoryItem
 }
 
-func NewRedisStore(rdb *redis.Client, prefix string, ttl time.Duration) *RedisStore {
-	return &RedisStore{rdb: rdb, prefix: prefix, ttl: ttl}
+type memoryItem struct {
+	value   string
+	expires time.Time
 }
 
-func (s *RedisStore) key(id string) string { return s.prefix + "captcha:" + id }
-
-func (s *RedisStore) Set(id, value string) error {
-	return s.rdb.Set(context.Background(), s.key(id), value, s.ttl).Err()
+// NewMemoryStore 创建内存验证码存储。
+func NewMemoryStore(ttl time.Duration) *MemoryStore {
+	if ttl <= 0 {
+		ttl = 2 * time.Minute
+	}
+	return &MemoryStore{ttl: ttl, items: make(map[string]memoryItem)}
 }
 
-func (s *RedisStore) Get(id string, clear bool) string {
-	ctx := context.Background()
-	v, err := s.rdb.Get(ctx, s.key(id)).Result()
-	if err != nil {
+func (s *MemoryStore) Set(id, value string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	for k, it := range s.items {
+		if now.After(it.expires) {
+			delete(s.items, k)
+		}
+	}
+	s.items[id] = memoryItem{value: value, expires: now.Add(s.ttl)}
+	return nil
+}
+
+func (s *MemoryStore) Get(id string, clear bool) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	it, ok := s.items[id]
+	if !ok || time.Now().After(it.expires) {
+		delete(s.items, id)
 		return ""
 	}
 	if clear {
-		s.rdb.Del(ctx, s.key(id))
+		delete(s.items, id)
 	}
-	return v
+	return it.value
 }
 
-func (s *RedisStore) Verify(id, answer string, clear bool) bool {
+func (s *MemoryStore) Verify(id, answer string, clear bool) bool {
 	want := s.Get(id, clear)
 	return want != "" && want == answer
 }
@@ -49,7 +69,7 @@ type Service struct {
 	enabled bool
 }
 
-// NewService 创建验证码服务；store 传入 RedisStore。
+// NewService 创建验证码服务。
 func NewService(store base64Captcha.Store, enabled bool) *Service {
 	// 数字+字母混合，宽 240 高 80，长度 5，干扰强度 0.6
 	driver := base64Captcha.NewDriverString(80, 240, 0, base64Captcha.OptionShowSlimeLine, 5,
@@ -66,7 +86,7 @@ func (s *Service) Generate() (id, image string, err error) {
 	return
 }
 
-// Verify 校验验证码（一次性，校验后即删除）。
+// Verify 校验验证码（一次性）。
 func (s *Service) Verify(id, answer string) bool {
 	if !s.enabled {
 		return true

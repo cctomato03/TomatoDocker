@@ -607,8 +607,8 @@ type ServerInfo struct {
 	HeapAllocMB float64 `json:"heapAllocMb"`
 	SysMB       float64 `json:"sysMb"`
 	UptimeSec   int64   `json:"uptimeSec"`
-	MySQLOK     bool    `json:"mysqlOk"`
-	RedisOK     bool    `json:"redisOk"`
+	SQLiteOK    bool    `json:"sqliteOk"`
+	CacheOK     bool    `json:"cacheOk"`
 }
 
 var startedAt = time.Now()
@@ -618,9 +618,9 @@ func (s *Service) ServerInfo(ctx context.Context) *ServerInfo {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 
-	mysqlOK := false
+	sqliteOK := false
 	if sqlDB, err := s.Repo.DB.DB(); err == nil {
-		mysqlOK = sqlDB.PingContext(ctx) == nil
+		sqliteOK = sqlDB.PingContext(ctx) == nil
 	}
 	return &ServerInfo{
 		GoVersion:   runtime.Version(),
@@ -631,7 +631,7 @@ func (s *Service) ServerInfo(ctx context.Context) *ServerInfo {
 		HeapAllocMB: float64(m.HeapAlloc) / 1024 / 1024,
 		SysMB:       float64(m.Sys) / 1024 / 1024,
 		UptimeSec:   int64(time.Since(startedAt).Seconds()),
-		MySQLOK:     mysqlOK,
-		RedisOK:     s.Cache.Ping(ctx) == nil,
+		SQLiteOK:    sqliteOK,
+		CacheOK:     s.Cache.Ping(ctx) == nil,
 	}
 }

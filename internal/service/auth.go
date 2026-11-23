@@ -263,7 +263,7 @@ type OnlineUser struct {
 	Nickname  string `json:"nickname"`
 }
 
-// OnlineUsers 在线用户列表（来自 Redis 集合）。
+// OnlineUsers 在线用户列表（来自进程内缓存集合）。
 //
 // 性能约定：用户信息必须**一次 IN 批量查询**，不能在循环里逐个查库。
 // 早期实现每个会话查一次用户表，350 个在线会话会让接口放大到 350 次查询（远程库上十几秒）。

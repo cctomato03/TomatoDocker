@@ -227,16 +227,16 @@ const routerTpl = `		// {{.Table.Comment}}（代码生成器生成，粘贴到 i
 
 const menuTpl = `-- {{.Table.Comment}}菜单（代码生成器生成）
 -- 注意：菜单 ID 段请按项目实际占用情况调整，避免与现有菜单冲突。
-INSERT IGNORE INTO sys_menu
+INSERT OR IGNORE INTO sys_menu
   (id, parent_id, name, type, permission, path, component, icon, sort, visible, keep_alive, status, tenant_id, create_time, remark)
 VALUES
-  ({{.MenuID}}, 0, '{{.Table.Comment}}', 2, '{{.Table.Perm}}:list', '{{.Table.Perm}}', '{{.Table.ViewPath}}', 'ep:document', 10, 1, 1, 1, 1, NOW(), '代码生成器生成'),
-  ({{.MenuID}}1, {{.MenuID}}, '新增', 3, '{{.Table.Perm}}:create', '', '', '', 1, 1, 1, 1, 1, NOW(), ''),
-  ({{.MenuID}}2, {{.MenuID}}, '修改', 3, '{{.Table.Perm}}:update', '', '', '', 2, 1, 1, 1, 1, NOW(), ''),
-  ({{.MenuID}}3, {{.MenuID}}, '删除', 3, '{{.Table.Perm}}:delete', '', '', '', 3, 1, 1, 1, 1, NOW(), '');
+  ({{.MenuID}}, 0, '{{.Table.Comment}}', 2, '{{.Table.Perm}}:list', '{{.Table.Perm}}', '{{.Table.ViewPath}}', 'ep:document', 10, 1, 1, 1, 1, CURRENT_TIMESTAMP, '代码生成器生成'),
+  ({{.MenuID}}1, {{.MenuID}}, '新增', 3, '{{.Table.Perm}}:create', '', '', '', 1, 1, 1, 1, 1, CURRENT_TIMESTAMP, ''),
+  ({{.MenuID}}2, {{.MenuID}}, '修改', 3, '{{.Table.Perm}}:update', '', '', '', 2, 1, 1, 1, 1, CURRENT_TIMESTAMP, ''),
+  ({{.MenuID}}3, {{.MenuID}}, '删除', 3, '{{.Table.Perm}}:delete', '', '', '', 3, 1, 1, 1, 1, CURRENT_TIMESTAMP, '');
 
 -- 授权给超管角色（role_id = 1）
-INSERT IGNORE INTO sys_role_menu (role_id, menu_id)
+INSERT OR IGNORE INTO sys_role_menu (role_id, menu_id)
 VALUES (1, {{.MenuID}}), (1, {{.MenuID}}1), (1, {{.MenuID}}2), (1, {{.MenuID}}3);
 `
 

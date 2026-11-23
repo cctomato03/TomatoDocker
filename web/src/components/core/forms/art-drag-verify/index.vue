@@ -92,7 +92,7 @@
     completedBg: '#57D187',
     circle: false,
     radius: 'calc(var(--custom-radius) / 3 + 2px)',
-    handlerIcon: 'solar:double-alt-arrow-right-linear',
+    handlerIcon: 'ri:arrow-right-line',
     successIcon: 'ri:check-fill',
     handlerBg: '#fff',
     textSize: '13px',

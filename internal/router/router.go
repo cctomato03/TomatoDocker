@@ -384,16 +384,16 @@ func metricsHandler(svc *service.Service, cfg *config.Config) gin.HandlerFunc {
 				"commit":    middleware.BuildCommit(),
 				"buildTime": middleware.BuildTime(),
 			},
-			MySQL: map[string]float64{},
+			DB: map[string]float64{},
 		}
 		if sqlDB, err := svc.Repo.DB.DB(); err == nil {
 			st := sqlDB.Stats()
-			extras.MySQL["open"] = float64(st.OpenConnections)
-			extras.MySQL["in_use"] = float64(st.InUse)
-			extras.MySQL["idle"] = float64(st.Idle)
+			extras.DB["open"] = float64(st.OpenConnections)
+			extras.DB["in_use"] = float64(st.InUse)
+			extras.DB["idle"] = float64(st.Idle)
 		}
 		if svc.Cache.Ping(ctx) == nil {
-			extras.Redis = 1
+			extras.Cache = 1
 		}
 		c.Header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		metrics.Default.Render(c.Writer, extras)

@@ -2,7 +2,7 @@
 //
 // 设计目标：
 //   - Stack 的 compose 内容、.env、历史版本、环境连接信息、资源授权全部存放在单个 SQLite 文件；
-//   - 不依赖 MySQL/Redis，迁移时只需拷贝 .db 文件；
+//   - 只依赖 SQLite，迁移时只需拷贝 .db 文件；
 //   - 纯 Go 驱动（modernc.org/sqlite），发布二进制无需 CGO。
 package dockerstore
 
@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite"
+	_ "github.com/glebarez/go-sqlite"
 
 	"web-basic/pkg/id"
 )

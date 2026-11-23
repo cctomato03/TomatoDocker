@@ -142,7 +142,7 @@ func Perm(code string) gin.HandlerFunc {
 	}
 }
 
-// RateLimit 简单滑动窗口限流（Redis INCR），按 IP + 路径维度。
+// RateLimit 简单滑动窗口限流（进程内计数），按 IP + 路径维度。
 func RateLimit(svc *service.Service, limit int, window time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if limit <= 0 {
@@ -316,16 +316,16 @@ func (h *Health) Register(r *gin.Engine) {
 	})
 	r.GET("/readyz", func(c *gin.Context) {
 		ctx := c.Request.Context()
-		mysqlOK := false
+		sqliteOK := false
 		if sqlDB, err := h.Svc.Repo.DB.DB(); err == nil {
-			mysqlOK = sqlDB.PingContext(ctx) == nil
+			sqliteOK = sqlDB.PingContext(ctx) == nil
 		}
-		redisOK := h.Svc.Cache.Ping(ctx) == nil
+		cacheOK := h.Svc.Cache.Ping(ctx) == nil
 		code := http.StatusOK
-		if !mysqlOK || !redisOK {
+		if !sqliteOK || !cacheOK {
 			code = http.StatusServiceUnavailable
 		}
-		c.JSON(code, gin.H{"mysql": mysqlOK, "redis": redisOK})
+		c.JSON(code, gin.H{"sqlite": sqliteOK, "cache": cacheOK})
 	})
 }
 

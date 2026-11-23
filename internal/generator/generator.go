@@ -54,77 +54,112 @@ var skipTables = map[string]bool{
 	"schema_migrations": true,
 }
 
-// LoadTables 读取库内所有表（含注释与行数）。
+// LoadTables 读取 SQLite 库内所有表（忽略 SQLite 内部表与迁移表）。
 func LoadTables(ctx context.Context, db *sql.DB, schema string) ([]TableMeta, error) {
+	_ = schema // SQLite 只有 main，保留参数以兼容调用方
 	rows, err := db.QueryContext(ctx, `
-SELECT t.TABLE_NAME, IFNULL(t.TABLE_COMMENT,''), IFNULL(t.TABLE_ROWS,0), IFNULL(DATE_FORMAT(t.CREATE_TIME,'%Y-%m-%d %H:%i:%s'),'')
-FROM information_schema.TABLES t
-WHERE t.TABLE_SCHEMA = ? AND t.TABLE_TYPE = 'BASE TABLE'
-ORDER BY t.TABLE_NAME`, schema)
+SELECT name FROM sqlite_master
+WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	out := make([]TableMeta, 0, 32)
+	names := make([]string, 0, 32)
 	for rows.Next() {
-		var m TableMeta
-		if err := rows.Scan(&m.Name, &m.Comment, &m.RowCount, &m.CreateAt); err != nil {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
-		if skipTables[m.Name] {
+		if skipTables[name] {
 			continue
 		}
-		m.fill()
-		out = append(out, m)
+		names = append(names, name)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	// SQLite 单连接：必须先关闭 sqlite_master 游标，再逐表执行 PRAGMA/COUNT，
+	// 否则会等待同一连接直到超时。
+	_ = rows.Close()
+	out := make([]TableMeta, 0, len(names))
+	for _, name := range names {
+		meta, err := loadSQLiteTable(ctx, db, name)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *meta)
+	}
+	return out, nil
 }
 
-// LoadTable 读取单表元信息（含字段）。
+// LoadTable 读取 SQLite 单表元信息（含字段）。
 func LoadTable(ctx context.Context, db *sql.DB, schema, table string) (*TableMeta, error) {
-	var m TableMeta
-	err := db.QueryRowContext(ctx, `
-SELECT t.TABLE_NAME, IFNULL(t.TABLE_COMMENT,''), IFNULL(t.TABLE_ROWS,0), IFNULL(DATE_FORMAT(t.CREATE_TIME,'%Y-%m-%d %H:%i:%s'),'')
-FROM information_schema.TABLES t
-WHERE t.TABLE_SCHEMA = ? AND t.TABLE_NAME = ?`, schema, table).
-		Scan(&m.Name, &m.Comment, &m.RowCount, &m.CreateAt)
+	_ = schema
+	var name string
+	err := db.QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&name)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	cols, err := loadColumns(ctx, db, schema, table)
+	if skipTables[name] {
+		return nil, nil
+	}
+	return loadSQLiteTable(ctx, db, name)
+}
+
+func loadSQLiteTable(ctx context.Context, db *sql.DB, table string) (*TableMeta, error) {
+	m := &TableMeta{Name: table, RowCount: 0, CreateAt: "", Comment: ""}
+	// 表名来自 sqlite_master，仍做标识符转义，避免拼 SQL 注入。
+	quoted := `"` + strings.ReplaceAll(table, `"`, `""`) + `"`
+	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+quoted).Scan(&m.RowCount)
+	cols, err := loadColumns(ctx, db, table)
 	if err != nil {
 		return nil, err
 	}
 	m.Columns = cols
 	m.fill()
-	return &m, nil
+	return m, nil
 }
 
-func loadColumns(ctx context.Context, db *sql.DB, schema, table string) ([]ColumnMeta, error) {
-	rows, err := db.QueryContext(ctx, `
-SELECT COLUMN_NAME, DATA_TYPE, COLUMN_TYPE, IFNULL(COLUMN_COMMENT,''), IS_NULLABLE, COLUMN_KEY, EXTRA,
-       IFNULL(CHARACTER_MAXIMUM_LENGTH, 0)
-FROM information_schema.COLUMNS
-WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
-ORDER BY ORDINAL_POSITION`, schema, table)
+func loadColumns(ctx context.Context, db *sql.DB, table string) ([]ColumnMeta, error) {
+	quoted := `"` + strings.ReplaceAll(table, `"`, `""`) + `"`
+	rows, err := db.QueryContext(ctx, `PRAGMA table_info(`+quoted+`)`)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
 	out := make([]ColumnMeta, 0, 24)
 	for rows.Next() {
-		var c ColumnMeta
-		var nullable, key, extra string
-		if err := rows.Scan(&c.Name, &c.DataType, &c.ColumnType, &c.Comment, &nullable, &key, &extra, &c.MaxLen); err != nil {
+		var (
+			cid      int
+			name     string
+			colType  string
+			notNull  int
+			defaultV sql.NullString
+			pk       int
+		)
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &defaultV, &pk); err != nil {
 			return nil, err
 		}
-		c.Nullable = nullable == "YES"
-		c.IsPrimary = key == "PRI"
-		c.AutoIncr = strings.Contains(extra, "auto_increment")
-		out = append(out, c)
+		dataType := strings.ToLower(strings.TrimSpace(colType))
+		if idx := strings.IndexAny(dataType, "( "); idx > 0 {
+			dataType = dataType[:idx]
+		}
+		maxLen := 0
+		if l := strings.Index(colType, "("); l >= 0 {
+			if r := strings.Index(colType[l:], ")"); r > 0 {
+				maxLen, _ = strconv.Atoi(strings.TrimSpace(colType[l+1 : l+r]))
+			}
+		}
+		out = append(out, ColumnMeta{
+			Name: name, DataType: dataType, ColumnType: colType,
+			Comment: "", Nullable: notNull == 0, IsPrimary: pk > 0,
+			AutoIncr: false, MaxLen: maxLen,
+		})
 	}
 	return out, rows.Err()
 }

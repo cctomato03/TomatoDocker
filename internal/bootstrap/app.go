@@ -93,24 +93,20 @@ func Run(ctx context.Context, configPath string) error {
 		return fmt.Errorf("初始化 ID 生成器失败: %w", err)
 	}
 
-	// MySQL
-	db, err := database.OpenMySQL(cfg.MySQL)
+	// SQLite 主业务库（单文件、无外部数据库依赖）
+	db, err := database.OpenSQLite(cfg.SQLite)
 	if err != nil {
 		return err
 	}
-	if cfg.MySQL.AutoMigrate {
+	if cfg.SQLite.AutoMigrate {
 		if err := migrate.Run(db); err != nil {
 			return fmt.Errorf("数据库迁移失败: %w", err)
 		}
-		logger.S().Info("数据库迁移完成")
+		logger.S().Info("SQLite 数据库迁移完成")
 	}
 
-	// Redis
-	rdb, err := database.OpenRedis(cfg.Redis)
-	if err != nil {
-		return err
-	}
-	c := cache.New(rdb, cfg.Redis.Prefix)
+	// 进程内缓存（替代 Redis；会话/验证码/限流数据随进程生命周期）
+	c := cache.New("web:")
 
 	// 存储
 	st, err := storage.New(cfg.Storage)
@@ -121,7 +117,7 @@ func Run(ctx context.Context, configPath string) error {
 	// 基础设施服务
 	jwtMgr := jwt.New(cfg.JWT.Secret, cfg.JWT.SecretPrev, cfg.JWT.AccessTTL, cfg.JWT.RefreshTTL, cfg.JWT.Issuer)
 	captchaSvc := captcha.NewService(
-		captcha.NewRedisStore(rdb, cfg.Redis.Prefix, 2*time.Minute),
+		captcha.NewMemoryStore(2*time.Minute),
 		cfg.Auth.CaptchaEnabled,
 	)
 
@@ -205,7 +201,6 @@ func Run(ctx context.Context, configPath string) error {
 	if sqlDB, err := db.DB(); err == nil {
 		_ = sqlDB.Close()
 	}
-	_ = rdb.Close()
 
 	logger.S().Info("已退出")
 	return nil

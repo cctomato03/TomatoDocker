@@ -1,5 +1,6 @@
-// Package migrate 极简版本化迁移执行器（内嵌 SQL，兼容 MySQL 5.7/8.0）。
-// 不引入额外依赖：schema_migrations 表记录已执行版本，按文件名顺序执行未应用的 *.up.sql。
+// Package migrate 极简版本化迁移执行器（内嵌 SQL，SQLite 存储）。
+// schema_migrations 表记录已执行版本，按文件名顺序执行未应用的 *.up.sql；
+// 历史迁移按 MySQL 语法编写，执行前由 sqlite.go 做受控方言转换。
 package migrate
 
 import (
@@ -57,11 +58,11 @@ func run(db *gorm.DB, mfs fs.FS) error {
 
 func ensureTable(db *gorm.DB) error {
 	ddl := "CREATE TABLE IF NOT EXISTS " + tableName + " (" +
-		"version VARCHAR(64) NOT NULL COMMENT '版本号'," +
-		"name VARCHAR(255) NOT NULL DEFAULT '' COMMENT '文件名'," +
-		"applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '执行时间'," +
+		"version TEXT NOT NULL," +
+		"name TEXT NOT NULL DEFAULT ''," +
+		"applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP," +
 		"PRIMARY KEY (version)" +
-		") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='迁移版本记录'"
+		")"
 	return db.Exec(ddl).Error
 }
 
@@ -77,11 +78,16 @@ func appliedVersions(db *gorm.DB) (map[string]bool, error) {
 	return out, nil
 }
 
-// execScript 按分号拆分语句逐条执行（驱动默认不支持多语句）。
+// execScript 按分号拆分语句逐条转换并执行（SQLite 驱动不支持 MySQL 多语句/方言）。
 func execScript(db *gorm.DB, script string) error {
 	for _, stmt := range splitStatements(script) {
-		if err := db.Exec(stmt).Error; err != nil {
-			return fmt.Errorf("%w | SQL: %s", err, truncate(stmt, 200))
+		for _, sqliteStmt := range translateSQL(stmt) {
+			if strings.TrimSpace(sqliteStmt) == "" {
+				continue
+			}
+			if err := db.Exec(sqliteStmt).Error; err != nil {
+				return fmt.Errorf("%w | SQL: %s", err, truncate(sqliteStmt, 300))
+			}
 		}
 	}
 	return nil

@@ -31,10 +31,11 @@
             └─ internal/dockerstore   独立 SQLite（环境、Stack、版本、授权、活动）
 ```
 
-- **MySQL**：只保存菜单、角色、用户等后台权限数据（迁移 `000013`~`000015`）。
-- **SQLite**：Docker 域数据，默认 `./data/tomato-docker.db`，与主库解耦，便于整库备份/恢复。
+- **SQLite 主库**：`./data/tomato.db`，保存菜单、角色、用户、日志、通知等后台数据。
+- **SQLite Docker 域库**：`./data/tomato-docker.db`，保存环境、Stack、历史版本、资源授权；与主库解耦，便于单独恢复 Stack。
 - **Docker SDK**：`github.com/docker/docker v28.5.2`；Compose 解析：`github.com/compose-spec/compose-go/v2 v2.8.0`。
-- **纯 Go SQLite**：`modernc.org/sqlite`，发布二进制无需 CGO。
+- **纯 Go SQLite**：`github.com/glebarez/sqlite`（底层 `glebarez/go-sqlite`），发布二进制无需 CGO。
+- **无 Redis**：会话、验证码、限流使用进程内缓存；单实例部署，重启后会话失效。
 
 ### 2.1 SQLite 表
 
@@ -184,17 +185,18 @@
 ### 7.1 备份
 
 1. 页面「Docker 管理 → 堆栈 → 下载 SQLite 备份」，或直接复制 `data/tomato-docker.db`（建议先停服务）。
-2. 同时备份 `configs/config.yaml` 中的 `jwt.secret`（用于解密环境凭据）。
-3. 需要跨机器恢复 Stack 时，也可用「导出」得到 JSON（不含环境凭据）。
+2. 同时备份主业务库 `data/tomato.db`（用户/角色/菜单/日志等）。
+3. 同时备份 `configs/config.yaml` 中的 `jwt.secret`（用于解密环境凭据）。
+4. 需要跨机器恢复 Stack 时，也可用「导出」得到 JSON（不含环境凭据）。
 
 ### 7.2 恢复
 
-1. 停止服务，把 `.db` 放回 `docker.database` 指定路径（默认 `./data/tomato-docker.db`）。
+1. 停止服务，把主库放回 `sqlite.path`（默认 `./data/tomato.db`），Docker 域库放回 `docker.database`（默认 `./data/tomato-docker.db`）。
 2. 保持 `jwt.secret` 与备份时一致；否则环境凭据需重新录入。
 3. 启动服务，确认「环境管理」中环境在线。
 4. 若只导入 Stack JSON：先创建同名环境，再在「堆栈 → 导入」选择 JSON；按环境名称匹配，同名 Stack 可选择覆盖。
 
-> 注意：SQLite 备份只包含 Docker 域数据；用户/角色/菜单仍在 MySQL，需要单独备份主库。
+> 注意：两个 SQLite 文件职责不同，恢复时都要放回；只恢复 Docker 域库会保留旧的用户/权限数据。
 
 ---
 
@@ -208,7 +210,7 @@ powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 ./bin/web-basic-server.exe -c configs/config.yaml
 ```
 
-数据目录：`./data/tomato-docker.db`（首次启动自动创建并登记本地 Docker）。
+数据目录：`./data/tomato.db`（主业务库）与 `./data/tomato-docker.db`（Docker 域），首次启动自动创建并登记本地 Docker。
 
 ### 8.2 Docker Compose（源码构建）
 
@@ -221,9 +223,10 @@ docker compose -f deploy/docker-compose.yml up -d --build
 `deploy/docker-compose.yml` 已包含：
 
 - `/var/run/docker.sock:/var/run/docker.sock`：让容器内应用管理宿主机 Docker；
-- `app-data:/app/data`：持久化 Docker SQLite；
+- `app-data:/app/data`：持久化两个 SQLite 库；
+- `APP__SQLITE__PATH=/app/data/tomato.db`；
 - `APP__DOCKER__DATABASE=/app/data/tomato-docker.db`；
-- MySQL 8.0 + Redis 7（应用依赖 MySQL/Redis，Docker 域数据仍在 SQLite）。
+- 只有应用容器，没有 MySQL/Redis 边车。
 
 ### 8.3 预构建镜像（类似 Portainer 安装方式）
 
@@ -246,7 +249,7 @@ TAG=latest docker compose -f deploy/docker-compose.release.yml up -d
 - 预构建镜像同样包含前端，不需要在宿主机安装 Go/Node；
 - 更新：`TAG=1.0.2 docker compose -f deploy/docker-compose.release.yml up -d`。
 
-> 挂载 Docker Socket 等于把宿主机 Docker 控制权交给该容器，请务必限制后台账号权限并只暴露给可信网络。MySQL/Redis 使用容器内部网络访问，不建议暴露到公网。
+> 挂载 Docker Socket 等于把宿主机 Docker 控制权交给该容器，请务必限制后台账号权限并只暴露给可信网络。
 
 ---
 
@@ -258,10 +261,11 @@ go build ./...
 go test ./...
 
 # Docker 页面冒烟（真实登录、逐页渲染、收集控制台/HTTP 错误）
+# 先以 APP__AUTH__CAPTCHA_ENABLED=false 启动服务；验证码在内存中，无法外部读取
 node scripts/e2e-docker-smoke.mjs http://127.0.0.1:8090 admin <密码>
 ```
 
-`scripts/e2e-docker-smoke.mjs` 会临时关闭验证码/滑块以便无头浏览器登录，结束后恢复；需要本机 Edge/Chrome 与 `wb-redis` 容器（读取验证码）。
+`scripts/e2e-docker-smoke.mjs` 使用真实登录并逐页渲染；验证码关闭时无需 Redis，只需本机 Edge/Chrome。
 
 已验证场景（本机 Docker Desktop 29.6.1）：
 
@@ -276,15 +280,12 @@ node scripts/e2e-docker-smoke.mjs http://127.0.0.1:8090 admin <密码>
 Docker 部署实测（2026-11-23）：
 
 - `docker compose -f deploy/docker-compose.yml build app` 成功；
-- 以 8088 / 3308 / 6388 端口启动 app + MySQL + Redis，`/readyz` 返回 `{"mysql":true,"redis":true}`；
-- 容器内应用通过 `/var/run/docker.sock` 看到宿主机 16 个容器（包括自身）；
-- 从容器内部署 Compose Stack，宿主机出现 `docker-deploy-e2e-web-1`，随后通过 API 删除；
+- 单容器启动（仅 `tomato-docker-app`，无 MySQL/Redis），`/readyz` 返回 `{"sqlite":true,"cache":true}`；
+- 容器内应用通过 `/var/run/docker.sock` 看到宿主机容器（包括自身）；
+- 从容器内部署 Compose Stack，宿主机出现 `single-container-e2e-web-1`，随后通过 API 删除；
 - `deploy/docker-compose.release.yml` 使用本地预构建镜像启动同样通过；
-- 容器化实例页面冒烟 17/17 通过；
-- Redis 设置密码 `TestRedis123` 后 `/readyz` 仍正常，随后恢复为空密码。
-
-> 容器化实例的 Redis 容器名是 `tomato-docker-redis`；运行冒烟脚本时设置
-> `E2E_REDIS_CONTAINER=tomato-docker-redis`。
+- 重启容器后 SQLite 中的公告仍在（主库持久化验证通过）；
+- 单容器页面冒烟 17/17 通过（含缺失图标外部请求修复）。
 
 ---
 
@@ -297,3 +298,4 @@ Docker 部署实测（2026-11-23）：
 - 无镜像仓库/Registry 凭据管理、镜像搜索、Stack Git/Webhook 自动更新。
 - SSH 未校验 host key；公网场景建议增加指纹白名单。
 - 资源授权粒度为环境级；如需单容器/单 Stack 级 ACL，可在 `docker_stack`/容器标签上扩展。
+- 进程内缓存只支持单实例：多副本会导致会话/验证码/定时任务租约不共享；需要水平扩容时再引入共享缓存。

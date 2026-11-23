@@ -383,7 +383,7 @@ func (s *Service) jobCleanSession(_ context.Context, params map[string]any) (str
 			}
 		}
 	}
-	// 一次批量 SREM：避免每个成员一次 Redis 往返
+	// 一次批量移除，避免逐个成员加锁
 	if err := s.Cache.SetRemove(context.Background(), keyOnline, stale...); err != nil {
 		return "", err
 	}

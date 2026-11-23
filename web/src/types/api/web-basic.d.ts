@@ -271,8 +271,8 @@ declare namespace WebBasic {
     heapAllocMb: number
     sysMb: number
     uptimeSec: number
-    mysqlOk: boolean
-    redisOk: boolean
+    sqliteOk: boolean
+    cacheOk: boolean
   }
 
   /** 个人资料 */

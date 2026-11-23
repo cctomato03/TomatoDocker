@@ -10,21 +10,15 @@ app:
     - http://localhost:5173
     - http://127.0.0.1:5173
 
-mysql:
-  dsn: "root:root123@tcp(127.0.0.1:3307)/web_basic?charset=utf8mb4&parseTime=True&loc=Local&timeout=10s&clientFoundRows=true"
-  max_idle: 10
-  max_open: 100
-  conn_max_lifetime_min: 60
-  slow_threshold_ms: 200
+# 主业务库：SQLite（纯 Go 驱动，无需 MySQL/Redis 服务）
+# 启动时自动建表/迁移；相对路径按进程工作目录解析。
+sqlite:
+  path: ./data/tomato.db
+  busy_timeout_ms: 5000
+  wal: true
   auto_migrate: true # 生产建议 false，由发布流程显式执行
+  slow_threshold_ms: 200
   log_sql: false
-
-redis:
-  addr: "127.0.0.1:6380"
-  password: ""
-  db: 0
-  prefix: "web:"
-  pool_size: 50
 
 jwt:
   secret: "dev-only-secret-please-change-in-production"

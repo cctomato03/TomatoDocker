@@ -1,4 +1,4 @@
-<!-- 服务器监控（Go 运行时 + MySQL / Redis 健康状态） -->
+<!-- 服务器监控（Go 运行时 + SQLite / 进程内缓存健康状态） -->
 <template>
   <div class="server-page art-full-height">
     <ElRow :gutter="12">
@@ -20,11 +20,11 @@
         <div class="flex-cb">
           <span>运行环境</span>
           <ElSpace>
-            <ElTag :type="info?.mysqlOk ? 'success' : 'danger'">
-              MySQL {{ info?.mysqlOk ? '正常' : '异常' }}
+            <ElTag :type="info?.sqliteOk ? 'success' : 'danger'">
+              SQLite {{ info?.sqliteOk ? '正常' : '异常' }}
             </ElTag>
-            <ElTag :type="info?.redisOk ? 'success' : 'danger'">
-              Redis {{ info?.redisOk ? '正常' : 'danger' }}
+            <ElTag :type="info?.cacheOk ? 'success' : 'danger'">
+              内存缓存 {{ info?.cacheOk ? '正常' : '异常' }}
             </ElTag>
             <ElButton size="small" :loading="loading" @click="loadData">刷新</ElButton>
           </ElSpace>

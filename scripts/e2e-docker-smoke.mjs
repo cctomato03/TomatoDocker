@@ -2,12 +2,16 @@
  * Docker 管理页面冒烟测试（零依赖 CDP）。
  *
  * 用法：node scripts/e2e-docker-smoke.mjs [baseUrl] [username] [password]
- * 环境变量：E2E_BROWSER（浏览器路径）、E2E_REDIS_CONTAINER（默认 wb-redis）
+ * 环境变量：E2E_BROWSER（浏览器路径）
  *
- * 覆盖：登录态注入 → Docker 概览/环境/授权/容器/镜像/网络/数据卷/堆栈/编辑器/
+ * 说明：验证码已改为进程内存储，无法外部读取；请用
+ *   APP__AUTH__CAPTCHA_ENABLED=false
+ * 启动服务后再运行本脚本。
+ *
+ * 覆盖：登录 → Docker 概览/环境/授权/容器/镜像/网络/数据卷/堆栈/编辑器/
  *       Swarm 集群/节点/服务/任务/密钥/配置 逐页渲染，收集控制台异常与 4xx/5xx。
  */
-import { spawn, execFileSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
@@ -30,22 +34,6 @@ const BROWSERS = [
   'C:/Program Files/Google/Chrome/Application/chrome.exe'
 ].filter(Boolean)
 
-const redisContainers = [process.env.E2E_REDIS_CONTAINER, 'wb-redis', 'web-basic-redis'].filter(Boolean)
-
-function captchaAnswer(id) {
-  for (const container of redisContainers) {
-    try {
-      const v = execFileSync('docker', ['exec', container, 'redis-cli', 'GET', `web:captcha:${id}`], {
-        encoding: 'utf8'
-      }).trim()
-      if (v) return v
-    } catch {
-      /* try next */
-    }
-  }
-  return ''
-}
-
 async function api(path, options = {}) {
   const res = await fetch(baseUrl + path, options)
   const body = await res.json().catch(() => ({}))
@@ -55,19 +43,13 @@ async function api(path, options = {}) {
 
 async function loginByApi() {
   const cap = await api('/api/v1/auth/captcha')
-  if (!cap.enabled) {
-    return api('/api/v1/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
-    })
+  if (cap.enabled) {
+    throw new Error('验证码已开启：请用 APP__AUTH__CAPTCHA_ENABLED=false 启动服务后再运行本脚本')
   }
-  const answer = captchaAnswer(cap.captchaId)
-  if (!answer) throw new Error('无法从 Redis 读取验证码，请检查 E2E_REDIS_CONTAINER')
   return api('/api/v1/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password, captchaId: cap.captchaId, captchaCode: answer })
+    body: JSON.stringify({ username, password })
   })
 }
 

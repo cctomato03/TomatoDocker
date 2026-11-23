@@ -12,20 +12,16 @@ import (
 	"web-basic/pkg/errs"
 )
 
-// currentSchema 取当前连接所在库名（代码生成器的数据源）。
+// currentSchema 代码生成器的数据源标识；SQLite 固定为 main（表清单来自 sqlite_master）。
 func (s *Service) currentSchema(ctx context.Context) (string, error) {
 	sqlDB, err := s.Repo.DB.DB()
 	if err != nil {
 		return "", errs.ErrDB.WithErr(err)
 	}
-	var name string
-	if err := sqlDB.QueryRowContext(ctx, "SELECT DATABASE()").Scan(&name); err != nil {
+	if err := sqlDB.PingContext(ctx); err != nil {
 		return "", errs.ErrDB.WithErr(err)
 	}
-	if name == "" {
-		return "", errs.ErrDB.WithErr(fmt.Errorf("无法确定当前数据库名，请检查 DSN 是否指定了 dbname"))
-	}
-	return name, nil
+	return "main", nil
 }
 
 // GenTables 代码生成器：库表清单。
