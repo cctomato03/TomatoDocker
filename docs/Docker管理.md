@@ -230,24 +230,24 @@ docker compose -f deploy/docker-compose.yml up -d --build
 
 ### 8.3 预构建镜像（类似 Portainer 安装方式）
 
-GitHub Actions 在 `v*` 标签构建并推送：
+GitHub Actions 在 `v*` 标签构建并推送到公共 registry：
 
 ```
-ghcr.io/cctomato03/tomato-docker:<版本>
-ghcr.io/cctomato03/tomato-docker:latest
+docker.cctomato.com/tomato/docker-web:<版本>
+docker.cctomato.com/tomato/docker-web:latest
 ```
 
 使用：
 
 ```bash
 cp deploy/.env.example deploy/.env
-# 如 GHCR 包为私有：docker login ghcr.io
 TAG=latest docker compose -f deploy/docker-compose.release.yml up -d
 ```
 
 - `docker-compose.release.yml` 与主 compose 配置一致，仅去掉 build，直接拉取镜像；
 - 预构建镜像同样包含前端，不需要在宿主机安装 Go/Node；
-- 更新：`TAG=1.0.2 docker compose -f deploy/docker-compose.release.yml up -d`。
+- 公共 registry 无需登录拉取；
+- 更新：`TAG=1.0.3 docker compose -f deploy/docker-compose.release.yml up -d`。
 
 > 挂载 Docker Socket 等于把宿主机 Docker 控制权交给该容器，请务必限制后台账号权限并只暴露给可信网络。
 

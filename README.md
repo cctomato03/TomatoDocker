@@ -67,11 +67,10 @@ docker compose -f deploy/docker-compose.yml up -d --build
 单容器只包含应用本身，没有 MySQL/Redis 边车容器。也可以直接使用 GitHub Actions 构建的预构建镜像（不构建源码）：
 
 ```bash
-docker login ghcr.io          # 如果 GHCR 包为私有
 TAG=latest docker compose -f deploy/docker-compose.release.yml up -d
 ```
 
-镜像地址：`ghcr.io/cctomato03/tomato-docker:latest`。
+镜像地址：`docker.cctomato.com/tomato/docker-web:latest`（公共 registry，无需登录拉取）。
 
 > 挂载 `/var/run/docker.sock` 等价于把宿主机 Docker 控制权交给该容器，请限制后台账号权限并只暴露给可信网络。
 

@@ -2,16 +2,15 @@
 #
 # 使用：
 #   cp deploy/.env.example deploy/.env
-#   # 如 GHCR 包为私有：docker login ghcr.io
 #   TAG=latest docker compose -f deploy/docker-compose.release.yml up -d
 #
-# 镜像由 GitHub Actions 在 v* 标签构建并发布到：
-#   ghcr.io/cctomato03/tomato-docker:<版本> 和 :latest
+# 镜像由 GitHub Actions 在 v* 标签构建并发布到公共 registry：
+#   docker.cctomato.com/tomato/docker-web:<版本> 和 :latest
 name: tomato-docker
 
 services:
   app:
-    image: ghcr.io/cctomato03/tomato-docker:${TAG:-latest}
+    image: docker.cctomato.com/tomato/docker-web:${TAG:-latest}
     container_name: tomato-docker-app
     restart: unless-stopped
     ports:
